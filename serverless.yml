@@ -1,0 +1,95 @@
+service: Weekly-Metrics-Collector
+
+frameworkVersion: "3"
+configValidationMode: warn
+
+plugins:
+  - serverless-plugin-resource-tagging
+  - serverless-python-requirements
+
+provider:
+  name: aws
+  runtime: python3.8
+  timeout: 600
+  region: us-east-1
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:ListBucket
+            - s3:GetBucketNotification
+            - s3:PutBucketNotification
+          Resource: "arn:aws:s3:::weekly-epo-metrics/*"
+        - Action:
+            - secretsmanager:GetSecretValue
+          Effect: Allow
+          Resource: "arn:aws:secretsmanager:us-east-1:495258453688:secret:prod/tareps/mysql/ingest-??????"
+
+  stackTags:
+    AssetID: "2248"
+    AssetName: "SECURITYOPERATIONS"
+
+package:
+  individually: true
+  exclude:
+    - "node_modules/**"
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+
+functions:
+  EpoMetricsCollector:
+    handler: src/weekly_metrics_collector.run
+    events:
+      - s3:
+          bucket: weekly-epo-metrics
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: epo-metrics/
+
+    vpc:
+      securityGroupIds:
+        - !Ref EpoMetricsCollectorSecurityGroup
+      subnetIds:
+        - Fn::ImportValue: !Sub "Infosec-prod-PrivateSubnetA"
+        - Fn::ImportValue: !Sub "Infosec-prod-PrivateSubnetB"
+        - Fn::ImportValue: !Sub "Infosec-prod-PrivateSubnetC"
+
+resources:
+  extensions:
+    EpoMetricsCollectorLogGroup:
+      Properties:
+        RetentionInDays: "30"
+  Resources:
+    S3EMailBucketPermissions:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: "weekly-epo-metrics"
+        PolicyDocument:
+          Statement:
+            - Principal:
+                Service: "ses.amazonaws.com"
+              Action:
+                - s3:PutObject
+              Effect: Allow
+              Sid: "AllowSESPuts"
+              Resource: "arn:aws:s3:::weekly-epo-metrics/*"
+              Condition:
+                StringEquals:
+                  "aws:Referer": { Ref: AWS::AccountId }
+    EpoMetricsCollectorSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        VpcId:
+          Fn::ImportValue: "Infosec-prod-Vpc"
+        GroupDescription: Vpc to ingest data into the TAREPS database from security tools
+        SecurityGroupEgress:
+          - CidrIp: 0.0.0.0/0
+            Description: internet access
+            IpProtocol: -1
+            FromPort: -1
+            ToPort: -1

@@ -1,0 +1,8 @@
+name: Weekly Metrics Collector
+org: lnlp
+description:
+  Deploys a Python code with the help of AWS Lambda and a traditional Serverless
+  Framework to ingest data into the TAREPS database from security tools
+keywords: aws, serverless, faas, lambda, python
+repo: https://github.com/serverless/examples/aws-python-scheduled-cron
+license: MIT
